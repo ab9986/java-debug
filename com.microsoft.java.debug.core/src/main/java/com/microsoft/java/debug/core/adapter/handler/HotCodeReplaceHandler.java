@@ -25,6 +25,7 @@ import com.microsoft.java.debug.core.protocol.Messages.Response;
 import com.microsoft.java.debug.core.protocol.Requests;
 import com.microsoft.java.debug.core.protocol.Requests.Arguments;
 import com.microsoft.java.debug.core.protocol.Requests.Command;
+import com.microsoft.java.debug.core.protocol.Requests.RedefineClassesArguments;
 import com.microsoft.java.debug.core.protocol.Responses;
 
 public class HotCodeReplaceHandler implements IDebugRequestHandler {
@@ -56,9 +57,9 @@ public class HotCodeReplaceHandler implements IDebugRequestHandler {
     @Override
     public CompletableFuture<Response> handle(Command command, Arguments arguments, Response response,
             IDebugAdapterContext context) {
-
+    	RedefineClassesArguments rcArguments = (RedefineClassesArguments) arguments;
         IHotCodeReplaceProvider provider = context.getProvider(IHotCodeReplaceProvider.class);
-
+        provider.initArgs(rcArguments);
         return provider.redefineClasses().thenCompose(classNames -> {
             response.body = new Responses.RedefineClassesResponse(classNames.toArray(new String[0]));
             return CompletableFuture.completedFuture(response);

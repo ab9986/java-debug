@@ -22,6 +22,7 @@
 
 package com.microsoft.java.debug.plugin.internal;
 
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -53,13 +54,24 @@ import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaModelMarker;
 import org.eclipse.jdt.core.IJavaProject;
+import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.ToolFactory;
+import org.eclipse.jdt.core.dom.AST;
+import org.eclipse.jdt.core.dom.ASTNode;
+import org.eclipse.jdt.core.dom.ASTParser;
+import org.eclipse.jdt.core.dom.AbstractTypeDeclaration;
+import org.eclipse.jdt.core.dom.AnonymousClassDeclaration;
+import org.eclipse.jdt.core.dom.CompilationUnit;
+import org.eclipse.jdt.core.dom.ITypeBinding;
+import org.eclipse.jdt.core.dom.NodeFinder;
 import org.eclipse.jdt.core.util.IClassFileReader;
 import org.eclipse.jdt.core.util.ISourceAttribute;
 import org.eclipse.jdt.internal.core.util.Util;
 import org.eclipse.jdt.ls.core.internal.JobHelpers;
 import org.eclipse.jdt.ls.core.internal.ProjectUtils;
+import org.eclipse.jdt.ls.core.internal.JDTUtils;
+import org.eclipse.jdt.ls.core.internal.handlers.JsonRpcHelpers;
 
 import com.microsoft.java.debug.core.Configuration;
 import com.microsoft.java.debug.core.DebugException;
@@ -74,7 +86,7 @@ import com.microsoft.java.debug.core.adapter.HotCodeReplaceEvent;
 import com.microsoft.java.debug.core.adapter.IDebugAdapterContext;
 import com.microsoft.java.debug.core.adapter.IHotCodeReplaceProvider;
 import com.microsoft.java.debug.core.protocol.Events;
-
+import com.microsoft.java.debug.core.protocol.Requests.RedefineClassesArguments;
 import com.sun.jdi.IncompatibleThreadStateException;
 import com.sun.jdi.ReferenceType;
 import com.sun.jdi.StackFrame;
@@ -325,11 +337,115 @@ public class JavaHotCodeReplaceProvider implements IHotCodeReplaceProvider, IRes
     public void onClassRedefined(Consumer<List<String>> consumer) {
         this.consumers.add(consumer);
     }
+    
+    public String getFullyQualifiedName(ICompilationUnit unit,int line,int column) {
+    	 // 构建AST解析器
+        ASTParser parser = ASTParser.newParser(AST.JLS_Latest);
+        parser.setKind(ASTParser.K_COMPILATION_UNIT);
+        parser.setSource(unit); // 绑定编译单元
+        parser.setResolveBindings(false); // 启用绑定解析
+        CompilationUnit astRoot = (CompilationUnit) parser.createAST(null);
+        
+        // 定位行列号对应的AST节点
+        int offset = astRoot.getPosition(line, column);
+        
+        try 
+        {
+        	IJavaElement element = unit.getElementAt(offset);
+        	if (element != null)
+        	{
+        		IType type = (IType) element.getAncestor(IJavaElement.TYPE);
+        		if (type != null ) {
+        			return type.getFullyQualifiedName();
+        		}
+        		
+        	}
+        	IType[] allTypes = unit.getAllTypes();
+        	if (allTypes != null && allTypes.length > 0 ) {
+        		return allTypes[0].getFullyQualifiedName();
+        	}
+        	return "";
+        }catch (Exception e) {
+        	return "";
+        }
+     
+//        // 找到该 offset 处最内层的 AST 节点
+//        ASTNode node = NodeFinder.perform(astRoot, position, 0);
+//
+//        // 向上找类型声明
+//        ASTNode current = node;
+//        while (current != null) {
+//            if (current instanceof AbstractTypeDeclaration) {
+//                AbstractTypeDeclaration td = (AbstractTypeDeclaration) current;
+//                String simpleName = td.getName().getIdentifier();
+//                return simpleName;
+//            }
+//            if (current instanceof AnonymousClassDeclaration) {
+//                // 匿名类：没有名字，用 binding
+//                ITypeBinding binding =
+//                        ((AnonymousClassDeclaration) current).resolveBinding();
+//                if (binding != null) {
+//                	return binding.getName();
+//                }
+//            }
+//            current = current.getParent();
+//        }
+//        return "";
+    }
+    
+    public void initArgs(RedefineClassesArguments rcArguments) {
+        //String qualifiedname = "com.hylandtec.tfb.logic.pub.DsPublicAction";
+        //String resourcepath = "D:/ab9986/home/git/3024_htfb/tfb-web/target/classes/com/hylandtec/tfb/logic/pub/DsPublicAction.class"; 
+        //deltaClassNames.add(qualifiedname);
+        //IResource resource = ResourcesPlugin.getWorkspace().getRoot().getFileForLocation(IPath.fromOSString(resourcepath));
 
+        //deltaResources.add(resource);
+
+        IResource sres = ResourcesPlugin.getWorkspace().getRoot().getFileForLocation(IPath.fromOSString(rcArguments.source.path));
+        final ICompilationUnit unit = JDTUtils.resolveCompilationUnit((IFile)sres);
+        if (unit == null || unit.getResource() == null || !unit.getResource().exists()) {
+            return;
+        }
+        String output_dir = "";
+        try {
+          output_dir = unit.getJavaProject().getOutputLocation().toOSString();
+        } catch (Exception e) {
+        	System.out.println("getOutputLocation error: " +e.getMessage());
+        }
+        // 获取包名
+        //String packageName = unit.getParent().getElementName(); // 直接获取包片段名称
+        //String fileName = unit.getElementName().replace(".java", "");
+        String qualifiedname = getFullyQualifiedName(unit,rcArguments.breakpoints[0].line-1,rcArguments.breakpoints[0].column-1);
+        //String qualifiedname = packageName +"."+className;
+        
+        
+        String resourcepath = output_dir + "\\"+qualifiedname.replace('.', '\\')+ ".class";;
+//        if (fileName.equalsIgnoreCase(className)) {
+//        	resourcepath = resourcepath + qualifiedname.replace('.', '/')+ ".class";
+//        }else {
+//        	resourcepath = resourcepath + packageName.replace('.', '/')+'/'+fileName+'$'+className+ ".class";
+//        }
+        //IResource resource = ResourcesPlugin.getWorkspace().getRoot().getFile(IPath.fromOSString(resourcepath));
+        publishEvent(HotCodeReplaceEvent.EventType.STARTING, "hot code QualiFiedName:"+qualifiedname);
+        publishEvent(HotCodeReplaceEvent.EventType.STARTING, "hot code ClassPath:"+resourcepath);
+        IResource resource = unit.getJavaProject().getProject().getWorkspace().getRoot().findMember(resourcepath);
+        if (resource == null)
+        {
+        	publishEvent(HotCodeReplaceEvent.EventType.STARTING, "hot code Full Classpath:not find");
+        	return;
+        }
+        
+        publishEvent(HotCodeReplaceEvent.EventType.STARTING, "hot code Full Classpath:"+resource.getFullPath().toOSString());
+        
+        deltaClassNames.add(qualifiedname);
+        deltaResources.add(resource);
+        
+    }
+    
     @Override
     public CompletableFuture<List<String>> redefineClasses() {
-        triggerBuildForBspProject();
-        JobHelpers.waitForBuildJobs(10 * 1000);
+        // triggerBuildForBspProject();
+        // JobHelpers.waitForBuildJobs(10 * 1000);
         return CompletableFuture.supplyAsync(() -> {
             List<String> classNames = new ArrayList<>();
             String errorMessage = null;
@@ -373,6 +489,7 @@ public class JavaHotCodeReplaceProvider implements IHotCodeReplaceProvider, IRes
 
         filterNotLoadedTypes(resourcesToReplace, qualifiedNamesToReplace);
         if (qualifiedNamesToReplace.isEmpty()) {
+        	publishEvent(HotCodeReplaceEvent.EventType.STARTING, "JVM doesn't load classes");
             return null;
             // If none of the changed types are loaded, do nothing.
         }

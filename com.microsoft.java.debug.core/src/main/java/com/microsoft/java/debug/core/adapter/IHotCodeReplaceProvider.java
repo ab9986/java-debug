@@ -15,12 +15,15 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
+import com.microsoft.java.debug.core.protocol.Requests.RedefineClassesArguments;
+
 import io.reactivex.Observable;
 
 public interface IHotCodeReplaceProvider extends IProvider {
     void onClassRedefined(Consumer<List<String>> consumer);
 
     CompletableFuture<List<String>> redefineClasses();
+    void initArgs(RedefineClassesArguments bpArguments);
 
     Observable<HotCodeReplaceEvent> getEventHub();
 }

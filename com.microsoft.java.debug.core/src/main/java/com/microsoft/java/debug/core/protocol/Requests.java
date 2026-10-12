@@ -331,7 +331,10 @@ public class Requests {
     }
 
     public static class RedefineClassesArguments extends Arguments {
-
+        public Types.Source source;
+        public int[] lines = new int[0];
+        public Types.SourceBreakpoint[] breakpoints = new Types.SourceBreakpoint[0];
+        public boolean sourceModified = false;
     }
 
     public static class RestartFrameArguments extends Arguments {
